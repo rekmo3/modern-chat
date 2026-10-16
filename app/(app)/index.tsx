@@ -1,0 +1,134 @@
+// app/(app)/index.tsx
+import {
+  View,
+  Text,
+  FlatList,
+  TouchableOpacity,
+  RefreshControl,
+  ActivityIndicator,
+  Alert,
+} from "react-native";
+import { useQuery, useMutation } from "convex/react";
+import { api } from "@/convex/_generated/api";
+import { useRouter, Stack } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
+import { useState } from "react";
+import { COLORS } from "@/constants/theme";
+import { Id } from "@/convex/_generated/dataModel";
+import { SwipeableRoomItem } from "@/components/SwipeableRoomItem";
+
+export default function HomeScreen() {
+  const router = useRouter();
+  const rooms = useQuery(api.rooms.listRooms);
+  const user = useQuery(api.users.currentUser);
+  const deleteRoom = useMutation(api.rooms.deleteRoom);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    setTimeout(() => setRefreshing(false), 500);
+  };
+
+  // Видалення кімнати через діалог підтвердження (лише для автора)
+  const handleDeleteRoom = (roomId: Id<"chatRooms">) => {
+    const room = rooms?.find((r) => r._id === roomId);
+    if (!room) return;
+
+    if (room.creatorId !== user?._id) {
+      Alert.alert(
+        "Обмеження доступу",
+        "Лише автор кімнати має право видалити її для всіх учасників.",
+        [{ text: "Зрозуміло" }]
+      );
+      return;
+    }
+
+    Alert.alert(
+      "Видалити кімнату?",
+      `Ви впевнені, що хочете видалити кімнату «${room.title}» та всі її повідомлення? Цю дію неможливо скасувати.`,
+      [
+        { text: "Скасувати", style: "cancel" },
+        {
+          text: "Видалити",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await deleteRoom({ roomId });
+            } catch (error) {
+              console.error("Error deleting room", error);
+              Alert.alert("Помилка", "Не вдалося видалити кімнату");
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  return (
+    <View className="flex-1 bg-surface">
+      <Stack.Screen
+        options={{
+          headerLeft: () => (
+            <TouchableOpacity
+              onPress={() => router.push("/profile")}
+              className="mr-3 w-9 h-9 rounded-full bg-secondary border border-surfaceLight items-center justify-center"
+              activeOpacity={0.8}
+            >
+              <Ionicons name="person" size={18} color={COLORS.primary} />
+            </TouchableOpacity>
+          ),
+          headerRight: () => (
+            <TouchableOpacity
+              onPress={() => router.push("/new-room")}
+              className="w-9 h-9 rounded-full bg-primary items-center justify-center"
+              activeOpacity={0.8}
+            >
+              <Ionicons name="add" size={22} color="#FFFFFF" />
+            </TouchableOpacity>
+          ),
+        }}
+      />
+
+      {rooms === undefined ? (
+        <View className="flex-1 justify-center items-center">
+          <ActivityIndicator size="large" color={COLORS.primary} />
+        </View>
+      ) : rooms.length === 0 ? (
+        <View className="flex-1 justify-center items-center px-6">
+          <View className="w-16 h-16 rounded-3xl bg-secondary items-center justify-center mb-4">
+            <Ionicons name="chatbubbles-outline" size={32} color={COLORS.textMuted} />
+          </View>
+          <Text className="text-ink text-lg font-bold text-center">
+            Немає активних кімнат
+          </Text>
+          <Text className="text-textMuted text-sm text-center mt-1">
+            Створіть першу кімнату за допомогою кнопки «+» угорі
+          </Text>
+        </View>
+      ) : (
+        <FlatList
+          data={rooms}
+          keyExtractor={(item) => item._id}
+          contentContainerStyle={{ padding: 16 }}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor={COLORS.primary}
+            />
+          }
+          renderItem={({ item }) => (
+            <SwipeableRoomItem
+              room={item}
+              isCreator={item.creatorId === user?._id}
+              onPress={() =>
+                router.push({ pathname: "/chat/[id]", params: { id: item._id } })
+              }
+              onDelete={handleDeleteRoom}
+            />
+          )}
+        />
+      )}
+    </View>
+  );
+}
